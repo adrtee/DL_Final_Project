@@ -278,8 +278,11 @@ class keypoint_detection():
 
 class number_detection():
     def __init__(self):
-        self.model = torchvision.models.mnist.MNIST()
-        self.input_size = 128
+        # self.model = torchvision.models.mnist.MNIST()
+        self.input_size = 256
+        self.keypoints = []
+        self.img_dir = []
+        self.batch_size = 1
 
     def import_data(self, parent):
         with open(parent+"train_GT_keypoints.json") as jsonfile:
@@ -291,17 +294,26 @@ class number_detection():
             self.img_dir.append(parent+"train_img/"+list(i.values())[0])
 
         #sampling for faster training
-        self.keypoints = self.keypoints[:100]
-        self.img_dir = self.img_dir[:100]
+        self.keypoints = self.keypoints[:5]
+        self.img_dir = self.img_dir[:5]
+        print(self.img_dir)
 
-        self.dataset = dataset_loader(self.keypoints, self.img_dir, self.input_size)
-    
+        self.dataset = dataset_loader(self.img_dir, self.keypoints, self.input_size)
+
     def predict(self):
         data_loader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False)
+        # x , y = self.dataset.__getitem__(0)
         for X, y in tqdm(data_loader):
-            output = model(input_image)
-            prediction = output.argmax()
-            print(prediction)
+            self.show_image(X[0])
+            # output = model(input_image)
+            # prediction = output.argmax()
+            # print(prediction)
+
+    def show_image(self, img):
+        # res = draw_keypoints(img, [], colors="blue", radius=5)
+        transform = T.ToPILImage()
+        img = transform(img)
+        img.show()
             
 if __name__ == "__main__":
     # keypoint_det = keypoint_detection()
