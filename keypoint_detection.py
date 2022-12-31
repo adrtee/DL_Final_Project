@@ -17,6 +17,7 @@ from PIL import Image
 from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
 import cv2
+from number_detection3 import number_detection
 
 class dataset_loader(Dataset):
     def __init__(self, imgs, keypoints, input_size):
@@ -70,7 +71,9 @@ def get_model(num_kpts, train_kptHead=False, train_fpn=True):
     return model, device, dtype
 
 class keypoint_detection():
-    def __init__(self):
+    def __init__(self, img = None, kp = None):
+        self.image = img
+        self.keypoint = kp
         self.img_dir = []
         self.keypoints = []
         # self.model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=False, num_keypoints=4) # min_size=800
@@ -95,6 +98,7 @@ class keypoint_detection():
     def import_data(self, parent):
         with open(parent+"train_GT_keypoints.json") as jsonfile:
             label_json = json.load(jsonfile)
+
         for i in label_json["annotations"]:
             self.keypoints.append(list(i.values())[-1])
 
@@ -102,8 +106,49 @@ class keypoint_detection():
             self.img_dir.append(parent+"train_img/"+list(i.values())[0])
 
         #sampling for faster training
-        self.keypoints = self.keypoints[:100]
-        self.img_dir = self.img_dir[:100]
+        # self.keypoints = self.keypoints[:1]
+        # self.img_dir = self.img_dir[:1]
+        self.keypoints = self.keypoints[5:6]
+        self.img_dir = self.img_dir[5:6]
+
+    def select_good_data(self):
+        dir_dataset = "./crop_img/good_one"
+        dir_list = next(os.walk(dir_dataset))
+        return dir_list[2]
+        # return ['scale_260_meas_0.png', 'scale_356_meas_0.png', 'scale_289_meas_0.png', 'scale_259_meas_0.png', 'scale_45_meas_0.png', 'scale_467_meas_0.png', 'scale_77_meas_0.png', 'scale_65_meas_0.png', 'scale_163_meas_0.png', 'scale_36_meas_0.png', 'scale_28_meas_0.png', 'scale_282_meas_0.png', 'scale_386_meas_0.png', 'scale_22_meas_0.png', 'scale_105_meas_0.png', 'scale_133_meas_0.png', 'scale_117_meas_0.png', 'scale_371_meas_0.png', 'scale_64_meas_0.png', 'scale_253_meas_0.png', 'scale_4_meas_0.png', 'scale_48_meas_0.png', 'scale_384_meas_0.png', 'scale_364_meas_0.png', 'scale_410_meas_0.png', 'scale_214_meas_0.png', 'scale_17_meas_0.png', 'scale_175_meas_0.png', 'scale_308_meas_0.png', 'scale_60_meas_0.png', 'scale_1_meas_0.png', 'scale_463_meas_0.png', 'scale_415_meas_0.png', 'scale_123_meas_0.png', 'scale_236_meas_0.png', 'scale_10_meas_0.png', 'scale_474_meas_0.png', 'scale_374_meas_0.png', 'scale_385_meas_0.png', 'scale_293_meas_0.png', 'scale_75_meas_0.png', 'scale_327_meas_0.png', 'scale_316_meas_0.png', 'scale_267_meas_0.png', 'scale_31_meas_0.png', 'scale_564_meas_0.png', 'scale_54_meas_0.png', 'scale_141_meas_0.png', 'scale_150_meas_0.png', 'scale_502_meas_0.png', 'scale_246_meas_0.png', 'scale_74_meas_0.png', 'scale_122_meas_0.png', 'scale_87_meas_0.png', 'scale_3_meas_0.png', 'scale_200_meas_0.png', 'scale_226_meas_0.png', 'scale_312_meas_0.png', 'scale_56_meas_0.png', 'scale_193_meas_0.png', 'scale_88_meas_0.png', 'scale_532_meas_0.png', 'scale_224_meas_0.png', 'scale_404_meas_0.png', 'scale_506_meas_0.png', 'scale_13_meas_0.png', 'scale_376_meas_0.png', 'scale_219_meas_0.png', 'scale_408_meas_0.png', 'scale_496_meas_0.png', 'scale_84_meas_0.png', 'scale_470_meas_0.png', 'scale_396_meas_0.png', 'scale_170_meas_0.png', 'scale_552_meas_0.png', 'scale_29_meas_0.png', 'scale_6_meas_0.png', 'scale_47_meas_0.png', 'scale_119_meas_0.png', 'scale_113_meas_0.png', 'scale_359_meas_0.png', 'scale_526_meas_0.png', 'scale_381_meas_0.png', 'scale_306_meas_0.png', 'scale_76_meas_0.png', 'scale_380_meas_0.png', 'scale_283_meas_0.png', 'scale_186_meas_0.png', 'scale_180_meas_0.png', 'scale_232_meas_0.png', 'scale_473_meas_0.png', 'scale_504_meas_0.png', 'scale_116_meas_0.png', 'scale_284_meas_0.png', 'scale_73_meas_0.png', 'scale_357_meas_0.png', 'scale_521_meas_0.png', 'scale_319_meas_0.png', 'scale_459_meas_0.png', 'scale_464_meas_0.png']
+    
+    def import_data2(self, parent):
+        good_img_dir = self.select_good_data()
+        
+        with open(parent+"train_GT_keypoints.json") as jsonfile:
+            label_json = json.load(jsonfile)
+
+        keypoints = []
+        img_dir = []
+        for i in label_json["annotations"]:
+            keypoints.append(list(i.values())[-1])
+
+        for i in label_json["images"]:
+            img_dir.append(list(i.values())[0])
+        
+        for target in good_img_dir:
+            index = img_dir.index(target)
+            self.img_dir.append(parent+"train_img/"+target)
+            self.keypoints.append(keypoints[index])
+        # print(self.keypoints)
+        # target = 'scale_260_meas_0.png'
+        # try:
+        #     index = img_dir.index(target)
+        #     print(f'{target} found at index {index} in list')
+        # except ValueError:
+        #     print(f'{target} not found in list')
+
+        #sampling for faster training
+        self.keypoints = self.keypoints[2:3]
+        self.img_dir = self.img_dir[2:3]
+        # self.keypoints = self.keypoints[5:6]
+        # self.img_dir = self.img_dir[5:6]
+
 
     def create_dataset(self):
         self.dataset = dataset_loader(self.img_dir, self.keypoints)
@@ -275,54 +320,52 @@ class keypoint_detection():
         except:
             print("Something went wrong! Saving failed.")
 
+    def get_small_box(self, image, keypoints):
+        min_x = keypoints[0] 
+        min_y = keypoints[1] 
+        max_x = keypoints[2] 
+        max_y = keypoints[3] 
+        # center_x = [row[4] for row in keypoints]
+        # center_y = [row[5] for row in keypoints]
+        # point_tip_x = [row[6] for row in keypoints]
+        # point_tip_y = [row[7] for row in keypoints]
 
-class number_detection():
-    def __init__(self):
-        # self.model = torchvision.models.mnist.MNIST()
-        self.input_size = 256
-        self.keypoints = []
-        self.img_dir = []
-        self.batch_size = 1
+        size = 40
+        min_box = image.crop((min_x-size, min_y-size, min_x+size, min_y+size))
+        max_box = image.crop((max_x-size, max_y-size, max_x+size, max_y+size))
+        return min_box, max_box
 
-    def import_data(self, parent):
-        with open(parent+"train_GT_keypoints.json") as jsonfile:
-            label_json = json.load(jsonfile)
-        for i in label_json["annotations"]:
-            self.keypoints.append(list(i.values())[-1])
-
-        for i in label_json["images"]:
-            self.img_dir.append(parent+"train_img/"+list(i.values())[0])
-
-        #sampling for faster training
-        self.keypoints = self.keypoints[:5]
-        self.img_dir = self.img_dir[:5]
-        print(self.img_dir)
-
-        self.dataset = dataset_loader(self.img_dir, self.keypoints, self.input_size)
-
-    def predict(self):
-        data_loader = DataLoader(self.dataset, batch_size=self.batch_size, shuffle=False)
-        # x , y = self.dataset.__getitem__(0)
-        for X, y in tqdm(data_loader):
-            self.show_image(X[0])
-            # output = model(input_image)
-            # prediction = output.argmax()
-            # print(prediction)
-
-    def show_image(self, img):
-        # res = draw_keypoints(img, [], colors="blue", radius=5)
+    def get_numbers(self, y_pred = None):
+        image = read_image(self.img_dir[0])
         transform = T.ToPILImage()
-        img = transform(img)
-        img.show()
+
+        for i in range(len(self.keypoints)):
+            y = self.keypoints[i]
+            img = transform(image)
+            img.show()
+
+            min_box, max_box = self.get_small_box(img, y) # y_pred
+            min_box.show()
+            max_box.show()
+
+            nd = number_detection(np.array(min_box))
+            nd.preprocessing()
+            max_num, min_num  = nd.get_text()
+            print(min_num)
+            print("---------------")
+            nd = number_detection(np.array(max_box))
+            nd.preprocessing()
+            max_num, min_num  = nd.get_text()
+            print(max_num)
+            
+        
             
 if __name__ == "__main__":
-    # keypoint_det = keypoint_detection()
+    keypoint_det = keypoint_detection()
     dataset_dir = "./crop_img/"
-    # keypoint_det.import_data(dataset_dir)
+    keypoint_det.import_data2(dataset_dir)
     # # keypoint_det.create_dataset()
     # # keypoint_det.show_img_keypoint()
     # keypoint_det.cross_val()
+    keypoint_det.get_numbers()
     
-    nd = number_detection()
-    nd.import_data(dataset_dir)
-    nd.predict()
