@@ -32,18 +32,22 @@ class dataset_loader(Dataset):
         return len(self.imgs)
 
     def __getitem__(self, idx):
+        dir = self.imgs[idx].replace("./crop_img/train_img/", "")
         image = read_image(self.imgs[idx])
-        tensor = Image.open(self.imgs[idx]).resize((self.input_size, self.input_size))
+        tensor = Image.open(self.imgs[idx])
+        # tensor = tensor.resize((self.input_size, self.input_size))
         tensor = self.ToTensor(tensor)
 
         # Normalise keypoints' coordinate
         kp = self.keypoints[idx]
-        kp = [element if index % 2 == 0 else element * image.shape[1]/ image.shape[2] for index, element in enumerate(kp)]
-        kp = [element * self.input_size / image.shape[1] for index, element in enumerate(kp)]
+        # kp = [element * self.input_size / image.shape[1] if index % 2 == 0 else\
+        #       element * self.input_size / image.shape[2] for index, element in enumerate(kp)]
+
+        # kp = [element if index % 2 == 0 else element * image.shape[1]/ image.shape[2] for index, element in enumerate(kp)]
+        # kp = [element * self.input_size / image.shape[1] for index, element in enumerate(kp)]
         kp = torch.tensor(kp)
         
-        return tensor, kp
-        # return image, tensor, kp
+        return tensor, kp, dir
 
 def get_model(num_kpts, train_kptHead=False, train_fpn=True):
     is_available = torch.cuda.is_available()
@@ -76,16 +80,13 @@ class keypoint_detection():
         self.keypoint = kp
         self.img_dir = []
         self.keypoints = []
-        # self.model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=False, num_keypoints=4) # min_size=800
-        # self.model = torchvision.models.detection.keypointrcnn_resnet50_fpn(pretrained=True)
-        self.model, _, _ = get_model(
-            4, train_kptHead=True, train_fpn=True)
+        self.model, _, _ = get_model(4, train_kptHead=True, train_fpn=True)
 
-        self.input_size = 128
-        self.num_fold = 5
-        self.epochs = 5
-        self.batch_size = 8
-        self.optimizer = Adam(self.model.parameters(), lr=5e-2)
+        self.input_size = 256
+        self.num_fold = 2
+        self.epochs = 10
+        self.batch_size = 1
+        self.optimizer = Adam(self.model.parameters(), lr=5e-5)
 
         print("Pytorch version: " + torch.__version__)
         if torch.cuda.is_available():
@@ -93,7 +94,13 @@ class keypoint_detection():
         self.device = 'cuda:0'
         self.model.to(self.device) 
 
-        # self.number_detector = number_detection()
+        for file in os.listdir("./output_img"):
+            file_path = os.path.join("./output_img", file)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                print(e)
         
     def import_data(self, parent):
         with open(parent+"train_GT_keypoints.json") as jsonfile:
@@ -135,36 +142,13 @@ class keypoint_detection():
             index = img_dir.index(target)
             self.img_dir.append(parent+"train_img/"+target)
             self.keypoints.append(keypoints[index])
-        # print(self.keypoints)
-        # target = 'scale_260_meas_0.png'
-        # try:
-        #     index = img_dir.index(target)
-        #     print(f'{target} found at index {index} in list')
-        # except ValueError:
-        #     print(f'{target} not found in list')
 
-        #sampling for faster training
-        self.keypoints = self.keypoints[2:3]
-        self.img_dir = self.img_dir[2:3]
-        # self.keypoints = self.keypoints[5:6]
-        # self.img_dir = self.img_dir[5:6]
+        # self.keypoints = self.keypoints[:10]
+        # self.img_dir = self.img_dir[:10]
 
-
-    def create_dataset(self):
-        self.dataset = dataset_loader(self.img_dir, self.keypoints)
-
-    def show_img_keypoint(self, x, y, y_pred):
-        # self.batch_size = 1        
-        # self.image, self.tensor, self.keypoint_label = self.dataset.__getitem__(0)
-        # self.keypoint_label = self.keypoint_label.unsqueeze(0)
+    def show_img_keypoint(self, x, y, y_pred, dir):
         x = x*255
         x = x.byte()
-        y = y#*128
-        y_pred = y_pred#*128
-        # top_left, top_right, bottom_left, bottom_right = self.get_box(y)
-        # print(x.shape)
-        # print(y)
-        # print(y_pred)
 
         # 0,1: scale min
         # 2,3: scale max
@@ -175,12 +159,6 @@ class keypoint_detection():
         res = draw_keypoints(res,   torch.FloatTensor([[y[2], y[3]]]).unsqueeze(0), colors="blue", radius=5)
         res = draw_keypoints(res,   torch.FloatTensor([[y[4], y[5]]]).unsqueeze(0), colors="blue", radius=5)
         res = draw_keypoints(res,   torch.FloatTensor([[y[6], y[7]]]).unsqueeze(0), colors="blue", radius=5)
-        
-        # box
-        # res = draw_keypoints(res, torch.FloatTensor([[top_left[0][0], top_left[0][1]]]).unsqueeze(0), colors="purple", radius=5)
-        # res = draw_keypoints(res, torch.FloatTensor([[top_right[0][0], top_right[0][1]]]).unsqueeze(0), colors="purple", radius=5)
-        # res = draw_keypoints(res, torch.FloatTensor([[bottom_left[0][0], bottom_left[0][1]]]).unsqueeze(0), colors="purple", radius=5)
-        # res = draw_keypoints(res, torch.FloatTensor([[bottom_right[0][0], bottom_right[0][1]]]).unsqueeze(0), colors="purple", radius=5)
 
         # prediction y_pred
         res = draw_keypoints(res, torch.FloatTensor([[y_pred[0], y_pred[1]]]).unsqueeze(0), colors="yellow", radius=5)
@@ -190,14 +168,15 @@ class keypoint_detection():
 
         transform = T.ToPILImage()
         img = transform(res)
-        img.show()
+        # img.show()
+        img.save('./output_img/'+dir)
     
     # Define a keypoint prediction loss function
     def keypoint_loss(pred_keypoints, keypoints):
         loss = torch.mean((pred_keypoints - keypoints) ** 2)
         return loss    
     
-    def get_box(self, keypoints, size):
+    def get_box(self, keypoints, size, x_shape, y_shape):
         # get radius
         center_x = [row[4] for row in keypoints]
         center_y = [row[5] for row in keypoints]
@@ -213,10 +192,12 @@ class keypoint_detection():
             radius = math.sqrt((point_tip_x[i] - center_x[i]) ** 2 + (point_tip_y[i] - center_y[i]) ** 2)
             radius_list.append(radius)
         
-            top_left.append([center_x[i]-radius,center_y[i]-radius])
+            # top_left.append([center_x[i]-radius,center_y[i]-radius])
             top_right.append([center_x[i]+radius,center_y[i]-radius])
             bottom_left.append([center_x[i]-radius,center_y[i]+radius])
-            bottom_right.append([center_x[i]+radius,center_y[i]+radius])
+            # bottom_right.append([center_x[i]+radius,center_y[i]+radius])
+            top_left.append(torch.zeros(2))
+            bottom_right.append([torch.tensor(x_shape), torch.tensor(y_shape)])
 
         return top_left, top_right, bottom_left, bottom_right 
 
@@ -241,14 +222,15 @@ class keypoint_detection():
             self.train(training_set, i+1)
 
         self.validate(val_set)
+        self.save_model()
    
     def validate(self, val_set):
         self.model.eval()
-        val_loader = DataLoader(val_set, batch_size=8, shuffle=False)
-        for X, y in tqdm(val_loader):
+        val_loader = DataLoader(val_set, batch_size=self.batch_size, shuffle=False)
+        for X, y, dir in tqdm(val_loader):
             X=X.to(self.device) 
             output = self.model(X)
-            print(output)
+            
 
             y = list(torch.unbind(y, dim=0))
 
@@ -257,17 +239,17 @@ class keypoint_detection():
                 kp = output[i].get('keypoints')
                 if output[i].get('keypoints_scores').numel() > 0:
                     _, max_scores_idx = torch.max(output[i].get('keypoints_scores'), dim=0)
-                    kp0 = kp[max_scores_idx[0]][0][:-1]# / self.input_size
-                    kp1 = kp[max_scores_idx[1]][1][:-1]# / self.input_size
-                    kp2 = kp[max_scores_idx[2]][2][:-1]# / self.input_size
-                    kp3 = kp[max_scores_idx[3]][3][:-1]# / self.input_size
+                    kp0 = kp[max_scores_idx[0]][0][:-1]
+                    kp1 = kp[max_scores_idx[1]][1][:-1]
+                    kp2 = kp[max_scores_idx[2]][2][:-1]
+                    kp3 = kp[max_scores_idx[3]][3][:-1]
                     kp = torch.cat((kp0, kp1, kp2, kp3), dim=0)
                 else: 
                     kp = torch.tensor([0,0,0,0,0,0,0,0])
  
                 output_keypoints.append(kp)
-                # self.show_img_keypoint(X[i], y[i], kp)
-            break
+                self.show_img_keypoint(X[i], y[i], kp, dir[i])
+                # print(kp)
 
     def train(self, training_set, fold):
         self.model.train()
@@ -277,9 +259,11 @@ class keypoint_detection():
             print("Current epoch: "+ str(epoch) + "; Current fold: "+ str(fold))
             epoch_loss = []
             index = 0
-            for X, y in tqdm(train_loader):
+            for X, y, dir in tqdm(train_loader):
+                x_shape = X.shape[2]
+                y_shape = X.shape[3]
+                top_left, top_right, bottom_left, bottom_right  = self.get_box(y, len(y), x_shape, y_shape)
 
-                top_left, top_right, bottom_left, bottom_right  = self.get_box(y, len(y))
                 y = y.view(y.size(0),-1, 2)
                 y_temp=torch.ones(y.shape[0],y.shape[1],1)
                 y_temp=torch.cat([y,y_temp],2) #torch.Size([32, 4, 3])
@@ -298,7 +282,7 @@ class keypoint_detection():
                 X=X.to(self.device) 
 
                 output = self.model(X, targets=targets ) #{'loss_classifier': tensor(0.0027, device='cuda:0', grad_fn=<NllLossBackward0>), 'loss_box_reg': tensor(0., device='cuda:0', grad_fn=<DivBackward0>), 'loss_keypoint': tensor(0., device='cuda:0', grad_fn=<MulBackward0>), 'loss_objectness': tensor(0.0283, device='cuda:0', grad_fn=<BinaryCrossEntropyWithLogitsBackward0>), 'loss_rpn_box_reg': tensor(0.0086, device='cuda:0', grad_fn=<DivBackward0>)}
-                print(output) 
+                # print(output) 
 
                 loss = output['loss_keypoint'] + output['loss_box_reg']
                 loss.backward()
@@ -306,12 +290,12 @@ class keypoint_detection():
                 self.optimizer.zero_grad()                
                 # epoch_loss.append(loss.item())
 
-    def save_model(self, fold):
+    def save_model(self):
         """
         save model parameters into pth
         """
         try: 
-            PATH = "./model_"+str(fold)+".pth"
+            PATH = "./model.pth"
             torch.save({
                 'model_state_dict': self.model.state_dict(),
                 'optimizer_state_dict': self.optimizer.state_dict()
@@ -357,15 +341,68 @@ class keypoint_detection():
             nd.preprocessing()
             max_num, min_num  = nd.get_text()
             print(max_num)
-            
-        
-            
+
+    def load_model(self):
+        """
+        load model parameters into model
+        """
+        PATH = "./model.pth"
+        checkpoint = torch.load(PATH)
+        try:
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            print("Successfully loaded model checkpoint from "+str(PATH))
+        except:
+            import sys
+            exception_type, exception_object, exception_traceback = sys.exc_info()
+            filename = exception_traceback.tb_frame.f_code.co_filename
+            line_number = exception_traceback.tb_lineno
+            print("Exception type: ", exception_type)
+            print("File name: ", filename)
+            print("Line number: ", line_number)
+            print("Warning: pretrained model could not be loaded.")
+
+    def inference(self):
+        self.model.eval()
+        test_set = dataset_loader(self.img_dir, self.keypoints, self.input_size)
+        test_loader = DataLoader(test_set, batch_size=1, shuffle=False)
+        for X, y, dir in tqdm(test_loader):     
+            X=X.to(self.device) 
+            output = self.model(X)
+
+            y = list(torch.unbind(y, dim=0))
+            output_keypoints = []
+            for i in range(len(output)):
+                kp = output[i].get('keypoints')
+                if output[i].get('keypoints_scores').numel() > 0:
+                    _, max_scores_idx = torch.max(output[i].get('keypoints_scores'), dim=0)
+                    kp0 = kp[max_scores_idx[0]][0][:-1]
+                    kp1 = kp[max_scores_idx[1]][1][:-1]
+                    kp2 = kp[max_scores_idx[2]][2][:-1]
+                    kp3 = kp[max_scores_idx[3]][3][:-1]
+                    kp = torch.cat((kp0, kp1, kp2, kp3), dim=0)
+                else: 
+                    kp = torch.tensor([0,0,0,0,0,0,0,0])
+ 
+                output_keypoints.append(kp)
+                self.show_img_keypoint(X[i], y[i], kp, dir[i])
+
 if __name__ == "__main__":
     keypoint_det = keypoint_detection()
     dataset_dir = "./crop_img/"
     keypoint_det.import_data2(dataset_dir)
-    # # keypoint_det.create_dataset()
-    # # keypoint_det.show_img_keypoint()
-    # keypoint_det.cross_val()
-    keypoint_det.get_numbers()
-    
+    # # train - val
+    keypoint_det.cross_val()
+
+    # # test
+    # keypoint_det.load_model()
+    # keypoint_det.inference()
+    # keypoint_det.get_numbers()
+
+
+    #TODO:
+    # code cleaning
+    # get loss
+    # expand dataset
+    # get number prediction done
+    # calculate final value
