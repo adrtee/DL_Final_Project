@@ -12,7 +12,7 @@ class number_detection():
         self.image = img
         self.angle = 0
     def get_input(self):
-        self.image = cv2.imread("./0004.png")
+        self.image = cv2.imread("./aaa.png")
     def preprocessing(self):
         self.image = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
         # plt.imshow(self.image)
@@ -30,12 +30,16 @@ class number_detection():
         self.image = Image.fromarray(self.image)
         data = pytesseract.image_to_string(self.image, config=custom_config)
         
-        while len(re.findall(r'\d+', data)) == 0 and self.angle<=360:
-            self.angle += 15
+        # while len(re.findall(r'\d+', data)) == 0 and self.angle<=360:
+        while self.angle<=360:
+            self.angle += 45
             self.image = self.image.rotate(self.angle)
             data = pytesseract.image_to_string(self.image, config=custom_config)
             # print(data)
-
+            # print(data)
+        
+        max_num = 0
+        min_num = 0
         if len(re.findall(r'\d+', data)) > 0:
             data = re.findall(r'\d+', data)
             max_num = max(data, key=int)
@@ -45,7 +49,7 @@ class number_detection():
 if __name__=='__main__':
     nd = number_detection()
     nd.get_input()
-    # nd.preprocessing()
+    nd.preprocessing()
     max_num, min_num = nd.get_text()
     # text = re.findall(r'\d+', text)
     print(min_num)

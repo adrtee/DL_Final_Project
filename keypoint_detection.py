@@ -33,7 +33,8 @@ class dataset_loader(Dataset):
         return len(self.imgs)
 
     def __getitem__(self, idx):
-        dir = self.imgs[idx].replace("./crop_img/train_img/", "")
+        # dir = self.imgs[idx].replace("./crop_img/train_img/", "")
+        dir = self.imgs[idx].replace("./crop_img/good_one/", "")
         image = read_image(self.imgs[idx])
         tensor = Image.open(self.imgs[idx])
         # tensor = tensor.resize((self.input_size, self.input_size))
@@ -49,6 +50,25 @@ class dataset_loader(Dataset):
         kp = torch.tensor(kp)
         
         return tensor, kp, dir
+
+class testset_loader(Dataset):
+    def __init__(self, imgs):
+        self.imgs = imgs
+        self.ToTensor = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.imgs)
+
+    def __getitem__(self, idx):
+        # dir = self.imgs[idx].replace("./crop_img/train_img/", "")
+        # dir = self.imgs[idx].replace("./crop_img/good_one/", "")
+        dir = self.imgs[idx].replace("./test/test/", "")
+        tensor = Image.open(self.imgs[idx])
+        tensor = self.ToTensor(tensor)
+       
+        return tensor, dir
 
 def get_model(num_kpts, train_kptHead=False, train_fpn=True):
     is_available = torch.cuda.is_available()
@@ -143,12 +163,24 @@ class keypoint_detection():
         
         for target in good_img_dir:
             index = img_dir.index(target)
-            self.img_dir.append(parent+"train_img/"+target)
+            self.img_dir.append(parent+"good_one/"+target)
             self.keypoints.append(keypoints[index])
 
         # self.keypoints = self.keypoints[:10]
         # self.img_dir = self.img_dir[:10]
     
+    def import_data_test(self, parent):
+        # good_img_dir = self.select_good_data()
+        # for target in good_img_dir:
+        #     self.img_dir.append(parent+"good_one/"+target)
+
+        dir_dataset = "./test/test"
+        dir_list = next(os.walk(dir_dataset))
+        for target in dir_list[2]:
+            self.img_dir.append(dir_dataset+"/"+target)
+        self.img_dir = self.img_dir[:100]
+
+
     def get_box(self, keypoints, size, x_shape, y_shape):
         # get radius
         center_x = [row[4] for row in keypoints]
@@ -273,17 +305,20 @@ class keypoint_detection():
         # 2,3: scale max
         # 4,5: center
         # 6,7: pointer   
-        # label y
-        res = draw_keypoints(x,     torch.FloatTensor([[y[0], y[1]]]).unsqueeze(0), colors="blue", radius=5)
-        res = draw_keypoints(res,   torch.FloatTensor([[y[2], y[3]]]).unsqueeze(0), colors="blue", radius=5)
-        res = draw_keypoints(res,   torch.FloatTensor([[y[4], y[5]]]).unsqueeze(0), colors="blue", radius=5)
-        res = draw_keypoints(res,   torch.FloatTensor([[y[6], y[7]]]).unsqueeze(0), colors="blue", radius=5)
-
         # prediction y_pred
-        res = draw_keypoints(res, torch.FloatTensor([[y_pred[0], y_pred[1]]]).unsqueeze(0), colors="yellow", radius=5)
+        res = draw_keypoints(x, torch.FloatTensor([[y_pred[0], y_pred[1]]]).unsqueeze(0), colors="yellow", radius=5)
         res = draw_keypoints(res, torch.FloatTensor([[y_pred[2], y_pred[3]]]).unsqueeze(0), colors="yellow", radius=5)
         res = draw_keypoints(res, torch.FloatTensor([[y_pred[4], y_pred[5]]]).unsqueeze(0), colors="yellow", radius=5)
         res = draw_keypoints(res, torch.FloatTensor([[y_pred[6], y_pred[7]]]).unsqueeze(0), colors="yellow", radius=5)
+
+        # label y
+        if y:
+            res = draw_keypoints(res,     torch.FloatTensor([[y[0], y[1]]]).unsqueeze(0), colors="blue", radius=5)
+            res = draw_keypoints(res,   torch.FloatTensor([[y[2], y[3]]]).unsqueeze(0), colors="blue", radius=5)
+            res = draw_keypoints(res,   torch.FloatTensor([[y[4], y[5]]]).unsqueeze(0), colors="blue", radius=5)
+            res = draw_keypoints(res,   torch.FloatTensor([[y[6], y[7]]]).unsqueeze(0), colors="blue", radius=5)
+
+        
 
         transform = T.ToPILImage()
         img = transform(res)
@@ -339,14 +374,20 @@ class keypoint_detection():
 
     def inference(self):
         self.model.eval()
-        test_set = dataset_loader(self.img_dir, self.keypoints, self.input_size)
+        test_set = testset_loader(self.img_dir)
         test_loader = DataLoader(test_set, batch_size=1, shuffle=False)
-        for X, y, dir in tqdm(test_loader):     
+        self.value_list = []
+        self.dir_list = []
+        # self.min_list = []
+        # self.max_list = []
+
+        for X, dir in tqdm(test_loader):     
             X=X.to(self.device) 
             output = self.model(X)
 
-            y = list(torch.unbind(y, dim=0))
+            # y = list(torch.unbind(y, dim=0))
             output_keypoints = []
+            
             for i in range(len(output)): # len shd be 1
                 kp = output[i].get('keypoints')
                 if output[i].get('keypoints_scores').numel() > 0:
@@ -360,12 +401,23 @@ class keypoint_detection():
                     kp = torch.tensor([0,0,0,0,0,0,0,0])
  
                 output_keypoints.append(kp)
+                y = None
+                self.show_img_keypoint(X[i], y, kp, dir[i])
+                
 
-                self.show_img_keypoint(X[i], y[i], kp, dir[i])
-                self.get_numbers(X[i], kp)
-                break
+                value = self.calculate_value(kp)
+            self.value_list.append(value)
+            self.dir_list.append(dir)
+        
+                # min_num, max_num = self.get_numbers(X[i], kp)
+                # print(f"dir: {dir} | min: {min_num} | max: {max_num}")
+                # self.min_list.append(min_num)
+                # self.max_list.append(max_num)
+                # 
+                
             # self.get_numbers(X[0].cpu().detach().numpy(), kp.cpu().detach().numpy())
-            break
+            # import time
+            # time.sleep(10)
 
     def get_numbers(self, image, y_pred = None):
         transform = T.ToPILImage()
@@ -374,26 +426,25 @@ class keypoint_detection():
         y_pred = np.array(y_pred.detach().cpu())
 
         for i in range(1):
-            y = self.keypoints[i]
             img = transform(image)
             img = ImageChops.invert(img)
-            img.show()
+            # img.show()
 
-            min_box, max_box = self.get_small_box(img, y) # y_pred
-            min_box.show()
-            max_box.show()
+            min_box, max_box = self.get_small_box(img, y_pred) # y_pred
+            # min_box.show()
+            # max_box.show()
 
             nd = number_detection(np.array(min_box))
+            # nd = number_detection(np.array(img))
             nd.preprocessing()
-            max_num, min_num  = nd.get_text()
-            print(min_num)
-            print("---------------")
-            nd = number_detection(np.array(max_box))
-            nd.preprocessing()
-            max_num, min_num  = nd.get_text()
-            print(max_num)
-            break
+            _, min_num  = nd.get_text()
 
+            nd = number_detection(np.array(max_box))
+            # nd = number_detection(np.array(img))
+            nd.preprocessing()
+            max_num, _  = nd.get_text()
+        
+        return min_num, max_num
 
     def get_small_box(self, image, keypoints):
         min_x = keypoints[0] 
@@ -405,30 +456,76 @@ class keypoint_detection():
         # point_tip_x = [row[6] for row in keypoints]
         # point_tip_y = [row[7] for row in keypoints]
 
-        size = 50
+        size = 30
 
         min_box = image.crop((min_x-size, min_y-size, min_x+size, min_y+size))
         max_box = image.crop((max_x-size, max_y-size, max_x+size, max_y+size))
         return min_box, max_box
 
+    def save_min_max(self):
+        import csv
+
+        # Open a file in write mode
+        with open("min_max.csv", "w", newline="") as file:
+            # Create a CSV writer object
+            writer = csv.writer(file)
+
+            # Write the lists to the CSV file as rows
+            writer.writerows(zip(self.dir_list, self.min_list, self.max_list))
+    
+    def calculate_value(self, keypoints):
+        min = 0 
+        max = 15
+        try:
+            # 0,1: scale min
+            # 2,3: scale max
+            # 4,5: center
+            # 6,7: pointer   
+            a = self.get_dist(keypoints[0],keypoints[6],keypoints[1],keypoints[7]) # min - tip
+            b = self.get_dist(keypoints[4],keypoints[6],keypoints[5],keypoints[7]) # center - tip
+            c = self.get_dist(keypoints[4],keypoints[0],keypoints[5],keypoints[1]) # center - min
+            d = self.get_dist(keypoints[2],keypoints[0],keypoints[3],keypoints[1]) # max - min
+            e = self.get_dist(keypoints[2],keypoints[4],keypoints[3],keypoints[4]) # center - max
+
+            theta = math.degrees(math.acos((b**2 + c**2 - a**2) / (2*b*c)))
+            alpha = 360 - math.degrees(math.acos((c**2 + e**2 - d**2) / (2*c*e))) # a->d, b->c, c->e 
+            return theta / alpha *  (max - min)
+        except Exception as e:
+            # print(e)
+            return 15/2
+
+    def get_dist(self, pt1_x, pt2_x, pt1_y, pt2_y):
+        return math.sqrt((pt1_x - pt2_x) ** 2 + (pt1_y - pt2_y) ** 2)
+
+    def save_results(self):
+        import csv
+
+        # Open a file in write mode
+        with open("results.csv", "w", newline="") as file:
+            # Create a CSV writer object
+            writer = csv.writer(file)
+
+            # Write the lists to the CSV file as rows
+            writer.writerows(zip(self.dir_list, self.value_list))
+
 if __name__ == "__main__":
     dataset_dir = "./crop_img/"
     keypoint_det = keypoint_detection()       
-    keypoint_det.import_data2(dataset_dir)
-    
-    # # train - val
-    keypoint_det.clear_output_folder() 
+    keypoint_det.clear_output_folder()
+        
+    # # train - val     
+    # keypoint_det.import_data2(dataset_dir)
     # keypoint_det.cross_val()
     # keypoint_det.plot_loss()
 
     # # test
+    keypoint_det.import_data_test(dataset_dir)
     keypoint_det.load_model()
     keypoint_det.inference()
-    # keypoint_det.get_numbers()
+    # keypoint_det.save_min_max()
+    keypoint_det.save_results()
 
 
     #TODO:
-    # use test set on inference
     # expand dataset
-    # get number prediction done
-    # calculate final value
+    # training data preprocessing (augmentation): rotate, denoise, reposition, resolution
