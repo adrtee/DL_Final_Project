@@ -1,4 +1,5 @@
 import os
+import csv
 from tqdm import tqdm
 import json
 import math
@@ -437,7 +438,7 @@ class keypoint_detection():
         res = draw_keypoints(res, torch.FloatTensor([[y_pred[6], y_pred[7]]]).unsqueeze(0), colors="yellow", radius=5)
 
         # label y
-        if len(y) > 0:
+        if y:
             res = draw_keypoints(res,     torch.FloatTensor([[y[0], y[1]]]).unsqueeze(0), colors="blue", radius=5)
             res = draw_keypoints(res,   torch.FloatTensor([[y[2], y[3]]]).unsqueeze(0), colors="blue", radius=5)
             res = draw_keypoints(res,   torch.FloatTensor([[y[4], y[5]]]).unsqueeze(0), colors="blue", radius=5)
@@ -507,7 +508,7 @@ class keypoint_detection():
         for X, dir in tqdm(test_loader):     
             X=X.to(self.device) 
             output = self.model(X)
-
+            
             # y = list(torch.unbind(y, dim=0))
             output_keypoints = []
             
@@ -525,12 +526,12 @@ class keypoint_detection():
  
                 output_keypoints.append(kp)
                 y = None
-                if len(y) == 8:
-                    self.show_img_keypoint(X[i], y, kp, dir[i])
+
+                self.show_img_keypoint(X[i]*255, y, kp, dir[i])
                 
 
                 value = self.calculate_value(kp)
-            self.value_list.append(value)
+            self.value_list.append(round(value,1))
             self.dir_list.append(dir)
         
                 # min_num, max_num = self.get_numbers(X[i], kp)
@@ -622,15 +623,39 @@ class keypoint_detection():
         return math.sqrt((pt1_x - pt2_x) ** 2 + (pt1_y - pt2_y) ** 2)
 
     def save_results(self):
-        import csv
-
         # Open a file in write mode
-        with open("results.csv", "w", newline="") as file:
+        with open("test.csv", "w", newline="") as file:
             # Create a CSV writer object
             writer = csv.writer(file)
 
+            self.dir_list = [item for t in self.dir_list for item in t]
+            self.dir_list = [item.replace(".png", "") for item in self.dir_list]
+
+            dir = []
+            for i in self.dir_list:
+                dir.append(int(i))
+            
+            value = [x for _, x in sorted(zip(dir, self.value_list))]
+            dir.sort()
+
             # Write the lists to the CSV file as rows
-            writer.writerows(zip(self.dir_list, self.value_list))
+            # writer.writerows(zip(dir, value))
+            value = [[i] for i in value]
+            writer.writerows(value)
+
+        # with open("results.csv", "w", newline="") as file:
+        #     # Create a CSV writer object
+        #     writer = csv.writer(file)
+
+        #     dir = []
+        #     for i in self.dir_list:
+        #         dir.append(int(i))
+            
+        #     value = [x for _, x in sorted(zip(dir, self.value_list))]
+        #     dir.sort()
+
+        #     # Write the lists to the CSV file as rows
+        #     writer.writerows(zip(dir, value))        
 
 if __name__ == "__main__":
     dataset_dir = "./crop_img/"
@@ -638,17 +663,17 @@ if __name__ == "__main__":
     keypoint_det.clear_output_folder()
         
     # # train - val    
-    keypoint_det.import_data(dataset_dir) 
-    # keypoint_det.import_data2(dataset_dir)
-    keypoint_det.cross_val()
-    keypoint_det.plot_loss()
+    # keypoint_det.import_data(dataset_dir) 
+    # # keypoint_det.import_data2(dataset_dir)
+    # keypoint_det.cross_val()
+    # keypoint_det.plot_loss()
 
     # # test
-    # keypoint_det.import_data_test(dataset_dir)
-    # keypoint_det.load_model()
-    # keypoint_det.inference()
-    # # keypoint_det.save_min_max()
-    # keypoint_det.save_results()
+    keypoint_det.import_data_test(dataset_dir)
+    keypoint_det.load_model()
+    keypoint_det.inference()
+    # keypoint_det.save_min_max()
+    keypoint_det.save_results()
 
 
     #TODO:
