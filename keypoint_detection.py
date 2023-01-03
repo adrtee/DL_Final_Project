@@ -19,6 +19,26 @@ import matplotlib.pyplot as plt
 import cv2
 from number_detection3 import number_detection
 from statistics import mean
+import albumentations as A
+import itertools
+import random
+
+def vis_keypoints(x, y_pred,dir):
+    x = x.byte()
+
+    # 0,1: scale min
+    # 2,3: scale max
+    # 4,5: center
+    # 6,7: pointer   
+    # prediction y_pred
+    res = draw_keypoints(x, torch.FloatTensor([[y_pred[0], y_pred[1]]]).unsqueeze(0), colors="yellow", radius=5)
+    res = draw_keypoints(res, torch.FloatTensor([[y_pred[2], y_pred[3]]]).unsqueeze(0), colors="yellow", radius=5)
+    res = draw_keypoints(res, torch.FloatTensor([[y_pred[4], y_pred[5]]]).unsqueeze(0), colors="yellow", radius=5)
+    res = draw_keypoints(res, torch.FloatTensor([[y_pred[6], y_pred[7]]]).unsqueeze(0), colors="yellow", radius=5)
+    # print(dir)
+    transform = T.ToPILImage()
+    img = transform(res)
+    img.show()
 
 class dataset_loader(Dataset):
     def __init__(self, imgs, keypoints, input_size):
@@ -28,29 +48,130 @@ class dataset_loader(Dataset):
         self.ToTensor = transforms.Compose([
             transforms.ToTensor()
         ])
-
+        
     def __len__(self):
         return len(self.imgs)
 
-    def __getitem__(self, idx):
-        # dir = self.imgs[idx].replace("./crop_img/train_img/", "")
-        dir = self.imgs[idx].replace("./crop_img/good_one/", "")
-        image = read_image(self.imgs[idx])
-        tensor = Image.open(self.imgs[idx])
-        # tensor = tensor.resize((self.input_size, self.input_size))
-        tensor = self.ToTensor(tensor)
+    def sp_noise(self,img):
 
-        # Normalise keypoints' coordinate
-        kp = self.keypoints[idx]
-        # kp = [element * self.input_size / image.shape[1] if index % 2 == 0 else\
-        #       element * self.input_size / image.shape[2] for index, element in enumerate(kp)]
-
-        # kp = [element if index % 2 == 0 else element * image.shape[1]/ image.shape[2] for index, element in enumerate(kp)]
-        # kp = [element * self.input_size / image.shape[1] for index, element in enumerate(kp)]
-        kp = torch.tensor(kp)
+        # Getting the dimensions of the image
+        row = img.shape[0]
+        col = img.shape[1]
         
-        return tensor, kp, dir
+        # Randomly pick some pixels in the
+        # image for coloring them white
+        # Pick a random number
+        number_of_pixels = random.randint(300, 800)
+        for i in range(number_of_pixels):
+            
+            # Pick a random y coordinate
+            y_coord=random.randint(0, row - 1)
+            
+            # Pick a random x coordinate
+            x_coord=random.randint(0, col - 1)
+            
+            # Color that pixel to white
+            img[y_coord][x_coord] = 255
+            
+        # Randomly pick some pixels in
+        # the image for coloring them black
+        # Pick a random number 
+        number_of_pixels = random.randint(300 , 800)
+        for i in range(number_of_pixels):
+            
+            # Pick a random y coordinate
+            y_coord=random.randint(0, row - 1)
+            
+            # Pick a random x coordinate
+            x_coord=random.randint(0, col - 1)
+            
+            # Color that pixel to black
+            img[y_coord][x_coord] = 0
+            
+        return img
 
+    def augmentation(self, image, keypoints):
+        case = random.randint(0, 7)  
+
+        if case == 0:
+            # no augmentation
+            return image, keypoints, case
+
+        elif case == 1:
+            # rotate
+            transform = A.Compose(
+                [A.Rotate(limit=180, p=0.5)], 
+                keypoint_params=A.KeypointParams(format='xy')
+            )          
+        elif case == 2:
+            # center crop
+            h=round(image.shape[0]*random.randint(5, 9)/10) 
+            w=round(image.shape[1]*random.randint(5, 9)/10)
+            transform = A.Compose(
+                [A.CenterCrop(height=h, width=w, p=1)], 
+                keypoint_params=A.KeypointParams(format='xy')
+            )
+        elif case == 3:
+            # Horizontal Flip
+            transform = A.Compose(
+                [A.HorizontalFlip(p=1)], 
+                keypoint_params=A.KeypointParams(format='xy')
+            )
+        elif case == 4:
+            # gaussian
+            transform = A.Compose(
+                [A.GaussNoise(var_limit=(100.0, 500.0), p=1)], 
+                keypoint_params=A.KeypointParams(format='xy')
+            )
+        elif case == 5:
+            # salt pepper
+            return self.sp_noise(image), keypoints, case
+
+        elif case == 6:
+            # translate
+            transform = A.Compose(
+                [A.Affine(translate_percent=0.1*random.randint(1, 2),p=1)], 
+                keypoint_params=A.KeypointParams(format='xy')
+            )
+        elif case == 7:
+            # rotate 180
+            transform = A.Compose(
+                [A.VerticalFlip(p=1), A.HorizontalFlip(p=1)], 
+                keypoint_params=A.KeypointParams(format='xy')
+            )  
+
+        x = transform(image = image, keypoints= keypoints)
+        return x["image"], x["keypoints"], case
+
+    def __getitem__(self, idx):
+        dir = self.imgs[idx].replace("./crop_img/train_img/", "")
+        # dir = self.imgs[idx].replace("./crop_img/good_one/", "")
+
+        # image = read_image(self.imgs[idx])
+        # tensor = Image.open(self.imgs[idx])
+        # tensor = self.ToTensor(tensor)
+        # kp = self.keypoints[idx]
+        # kp = torch.tensor(kp)
+        # return tensor, kp, dir
+
+        tensor = cv2.imread(self.imgs[idx])
+        
+        kp = self.keypoints[idx]
+        kp = list(zip(kp[::2], kp[1::2])) 
+        transformed_image, transformed_keypoints, seed = self.augmentation(image=tensor, keypoints=kp)
+
+        transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
+        transformed_image = torch.from_numpy(transformed_image).float()
+        transformed_image = transformed_image.permute((2,0,1))
+        
+        transformed_keypoints = list(itertools.chain(*transformed_keypoints))
+        transformed_keypoints = torch.tensor(transformed_keypoints)
+        if seed ==1 or seed==6:
+            transformed_keypoints = transformed_keypoints.to(dtype=torch.float32)
+
+        return transformed_image,  transformed_keypoints, dir
+        
+        
 class testset_loader(Dataset):
     def __init__(self, imgs):
         self.imgs = imgs
@@ -105,7 +226,7 @@ class keypoint_detection():
 
         self.input_size = 256
         self.num_fold = 5
-        self.epochs = 10
+        self.epochs = 20
         self.batch_size = 1 # dont change
         self.optimizer = Adam(self.model.parameters(), lr=5e-5)
         self.mean_loss = []
@@ -142,8 +263,8 @@ class keypoint_detection():
             self.img_dir.append(parent+"train_img/"+list(i.values())[0])
 
         #sampling for faster training
-        # self.keypoints = self.keypoints[:1]
-        # self.img_dir = self.img_dir[:1]
+        self.keypoints = self.keypoints[:100]
+        self.img_dir = self.img_dir[:100]
         # self.keypoints = self.keypoints[5:6]
         # self.img_dir = self.img_dir[5:6]
   
@@ -180,13 +301,12 @@ class keypoint_detection():
             self.img_dir.append(dir_dataset+"/"+target)
         self.img_dir = self.img_dir[:100]
 
-
     def get_box(self, keypoints, size, x_shape, y_shape):
         # get radius
-        center_x = [row[4] for row in keypoints]
-        center_y = [row[5] for row in keypoints]
-        point_tip_x = [row[6] for row in keypoints]
-        point_tip_y = [row[7] for row in keypoints]
+        # center_x = [row[4] for row in keypoints]
+        # center_y = [row[5] for row in keypoints]
+        # point_tip_x = [row[6] for row in keypoints]
+        # point_tip_y = [row[7] for row in keypoints]
         
         radius_list = []
         top_left = []
@@ -194,12 +314,12 @@ class keypoint_detection():
         bottom_left = []
         bottom_right = []
         for i in range(size):
-            radius = math.sqrt((point_tip_x[i] - center_x[i]) ** 2 + (point_tip_y[i] - center_y[i]) ** 2)
-            radius_list.append(radius)
+            # radius = math.sqrt((point_tip_x[i] - center_x[i]) ** 2 + (point_tip_y[i] - center_y[i]) ** 2)
+            # radius_list.append(radius)
         
             # top_left.append([center_x[i]-radius,center_y[i]-radius])
-            top_right.append([center_x[i]+radius,center_y[i]-radius])
-            bottom_left.append([center_x[i]-radius,center_y[i]+radius])
+            # top_right.append([center_x[i]+radius,center_y[i]-radius])
+            # bottom_left.append([center_x[i]-radius,center_y[i]+radius])
             # bottom_right.append([center_x[i]+radius,center_y[i]+radius])
             top_left.append(torch.zeros(2))
             bottom_right.append([torch.tensor(x_shape), torch.tensor(y_shape)])
@@ -275,6 +395,7 @@ class keypoint_detection():
         self.model.eval()
         val_loader = DataLoader(val_set, batch_size=self.batch_size, shuffle=False)
         for X, y, dir in tqdm(val_loader):
+            # vis_keypoints(X[0], y[0], dir)
             X=X.to(self.device) 
             output = self.model(X)
             
@@ -294,11 +415,15 @@ class keypoint_detection():
                     kp = torch.tensor([0,0,0,0,0,0,0,0])
  
                 output_keypoints.append(kp)
-                self.show_img_keypoint(X[i], y[i], kp, dir[i])
+
+                if len(y[0]) == 8:
+                    self.show_img_keypoint(X[i], y[i], kp, dir[i])
                 # print(kp)
+
+            # break
                 
     def show_img_keypoint(self, x, y, y_pred, dir):
-        x = x*255
+        # x = x*255
         x = x.byte()
 
         # 0,1: scale min
@@ -312,13 +437,11 @@ class keypoint_detection():
         res = draw_keypoints(res, torch.FloatTensor([[y_pred[6], y_pred[7]]]).unsqueeze(0), colors="yellow", radius=5)
 
         # label y
-        if y:
+        if len(y) > 0:
             res = draw_keypoints(res,     torch.FloatTensor([[y[0], y[1]]]).unsqueeze(0), colors="blue", radius=5)
             res = draw_keypoints(res,   torch.FloatTensor([[y[2], y[3]]]).unsqueeze(0), colors="blue", radius=5)
             res = draw_keypoints(res,   torch.FloatTensor([[y[4], y[5]]]).unsqueeze(0), colors="blue", radius=5)
             res = draw_keypoints(res,   torch.FloatTensor([[y[6], y[7]]]).unsqueeze(0), colors="blue", radius=5)
-
-        
 
         transform = T.ToPILImage()
         img = transform(res)
@@ -402,7 +525,8 @@ class keypoint_detection():
  
                 output_keypoints.append(kp)
                 y = None
-                self.show_img_keypoint(X[i], y, kp, dir[i])
+                if len(y) == 8:
+                    self.show_img_keypoint(X[i], y, kp, dir[i])
                 
 
                 value = self.calculate_value(kp)
@@ -513,17 +637,18 @@ if __name__ == "__main__":
     keypoint_det = keypoint_detection()       
     keypoint_det.clear_output_folder()
         
-    # # train - val     
+    # # train - val    
+    keypoint_det.import_data(dataset_dir) 
     # keypoint_det.import_data2(dataset_dir)
-    # keypoint_det.cross_val()
-    # keypoint_det.plot_loss()
+    keypoint_det.cross_val()
+    keypoint_det.plot_loss()
 
     # # test
-    keypoint_det.import_data_test(dataset_dir)
-    keypoint_det.load_model()
-    keypoint_det.inference()
-    # keypoint_det.save_min_max()
-    keypoint_det.save_results()
+    # keypoint_det.import_data_test(dataset_dir)
+    # keypoint_det.load_model()
+    # keypoint_det.inference()
+    # # keypoint_det.save_min_max()
+    # keypoint_det.save_results()
 
 
     #TODO:
